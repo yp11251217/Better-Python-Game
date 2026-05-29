@@ -1,9 +1,9 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Mobile Hole.io", layout="wide")
+st.set_page_config(page_title="Universal Hole.io", layout="wide")
 
-st.title("🕳️ Mobile Hole.io")
+st.title("🕳️ Universal Hole.io (PC + Mobile)")
 
 html_code = """
 <!DOCTYPE html>
@@ -16,7 +16,7 @@ html_code = """
         margin: 0;
         overflow: hidden;
         background: #111;
-        touch-action: none; /* IMPORTANT for mobile drag */
+        touch-action: none;
     }
 
     canvas {
@@ -29,20 +29,21 @@ html_code = """
         top: 10px;
         left: 10px;
         color: white;
+        font-family: Arial;
         font-size: 16px;
         z-index: 10;
-        font-family: Arial;
     }
 
+    /* Mobile joystick */
     #joystickArea {
         position: absolute;
-        bottom: 30px;
-        left: 30px;
+        bottom: 25px;
+        left: 25px;
         width: 120px;
         height: 120px;
         border-radius: 50%;
         background: rgba(255,255,255,0.08);
-        touch-action: none;
+        display: none; /* hidden on PC by default */
     }
 
     #stick {
@@ -77,16 +78,23 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+/* ---------------- DEVICE DETECTION ---------------- */
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+if (isMobile) {
+    document.getElementById("joystickArea").style.display = "block";
+}
+
+/* ---------------- PLAYER ---------------- */
 let player = {
     x: canvas.width/2,
     y: canvas.height/2,
-    r: 12,
-    vx: 0,
-    vy: 0
+    r: 12
 };
 
+/* ---------------- FOOD ---------------- */
 let food = [];
-for (let i = 0; i < 70; i++) {
+for (let i = 0; i < 80; i++) {
     food.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
@@ -94,61 +102,70 @@ for (let i = 0; i < 70; i++) {
     });
 }
 
-/* ---------------- TOUCH JOYSTICK ---------------- */
-let joystick = {
-    active: false,
-    dx: 0,
-    dy: 0
-};
+/* ---------------- KEYBOARD CONTROLS (PC) ---------------- */
+let keys = {};
+
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+/* ---------------- JOYSTICK (MOBILE) ---------------- */
+let joystick = { dx: 0, dy: 0 };
 
 const area = document.getElementById("joystickArea");
 const stick = document.getElementById("stick");
 
-function setStickPosition(x, y) {
+function moveStick(x, y) {
     stick.style.left = x + "px";
     stick.style.top = y + "px";
 }
 
-area.addEventListener("touchstart", e => {
-    joystick.active = true;
-});
+if (isMobile) {
+    area.addEventListener("touchstart", e => {});
+    
+    area.addEventListener("touchmove", e => {
+        let t = e.touches[0];
+        let rect = area.getBoundingClientRect();
 
-area.addEventListener("touchmove", e => {
-    let t = e.touches[0];
-    let rect = area.getBoundingClientRect();
+        let dx = t.clientX - (rect.left + rect.width/2);
+        let dy = t.clientY - (rect.top + rect.height/2);
 
-    let dx = t.clientX - (rect.left + rect.width/2);
-    let dy = t.clientY - (rect.top + rect.height/2);
+        let max = 40;
+        let dist = Math.min(max, Math.sqrt(dx*dx + dy*dy));
+        let angle = Math.atan2(dy, dx);
 
-    let max = 40;
-    let dist = Math.min(max, Math.sqrt(dx*dx + dy*dy));
+        joystick.dx = Math.cos(angle) * dist / max;
+        joystick.dy = Math.sin(angle) * dist / max;
 
-    let angle = Math.atan2(dy, dx);
+        moveStick(35 + joystick.dx*40, 35 + joystick.dy*40);
+    });
 
-    joystick.dx = Math.cos(angle) * dist / max;
-    joystick.dy = Math.sin(angle) * dist / max;
+    area.addEventListener("touchend", () => {
+        joystick.dx = 0;
+        joystick.dy = 0;
+        moveStick(35, 35);
+    });
+}
 
-    setStickPosition(
-        35 + joystick.dx * 40,
-        35 + joystick.dy * 40
-    );
-});
-
-area.addEventListener("touchend", () => {
-    joystick.dx = 0;
-    joystick.dy = 0;
-    setStickPosition(35, 35);
-});
-
-/* ---------------- GAME LOGIC ---------------- */
+/* ---------------- GAME LOOP ---------------- */
 
 function update() {
-    player.x += joystick.dx * 5;
-    player.y += joystick.dy * 5;
+    let speed = 5;
 
+    // PC movement
+    if (keys["w"] || keys["arrowup"]) player.y -= speed;
+    if (keys["s"] || keys["arrowdown"]) player.y += speed;
+    if (keys["a"] || keys["arrowleft"]) player.x -= speed;
+    if (keys["d"] || keys["arrowright"]) player.x += speed;
+
+    // Mobile movement
+    player.x += joystick.dx * speed;
+    player.y += joystick.dy * speed;
+
+    // bounds
     player.x = Math.max(player.r, Math.min(canvas.width-player.r, player.x));
     player.y = Math.max(player.r, Math.min(canvas.height-player.r, player.y));
 
+    // eating logic
     for (let i = 0; i < food.length; i++) {
         let f = food[i];
         let dx = player.x - f.x;
@@ -157,7 +174,7 @@ function update() {
 
         if (dist < player.r + f.r) {
             if (player.r >= f.r) {
-                player.r += 0.25;
+                player.r += 0.2;
                 food[i] = {
                     x: Math.random() * canvas.width,
                     y: Math.random() * canvas.height,
@@ -175,6 +192,7 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // food
     for (let f of food) {
         ctx.beginPath();
         ctx.fillStyle = "#4ade80";
@@ -182,6 +200,7 @@ function draw() {
         ctx.fill();
     }
 
+    // player
     ctx.beginPath();
     ctx.fillStyle = "black";
     ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
